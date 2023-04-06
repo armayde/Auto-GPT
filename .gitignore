@@ -1,8 +1,11 @@
-*.mpeg
+scripts/keys.py
+scripts/*json
+scripts/node_modules/
+scripts/__pycache__/keys.cpython-310.pyc
+package-lock.json
 *.pyc
-auto_gpt_workspace/*
-last_run_ai_settings.yaml
-src/__pycache__/*
-src/*json
+scripts/auto_gpt_workspace/*
+*.mpeg
 .env
-.vscode
+last_run_ai_settings.yaml
+outputs/*
