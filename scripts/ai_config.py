@@ -14,13 +14,10 @@ class AIConfig:
     @classmethod
     def load(cls, config_file=SAVE_FILE):
         # Load variables from yaml file if it exists
-        if config_file:
-            try:
-                with open(config_file) as file:
-                    config_params = yaml.load(file, Loader=yaml.FullLoader)
-            except FileNotFoundError:
-                config_params = {}
-        else:
+        try:
+            with open(config_file) as file:
+                config_params = yaml.load(file, Loader=yaml.FullLoader)
+        except FileNotFoundError:
             config_params = {}
 
         ai_name = config_params.get("ai_name", "")
