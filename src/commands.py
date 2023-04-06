@@ -1,20 +1,27 @@
-import browse
+import utils.browse as browse
 import json
-import memory as mem
+from utils.memory import PineconeMemory
 import datetime
-import agent_manager as agents
-import speak
+import chat.agent_manager as agents
+import utils.speak as speak
 from config import Config
-import ai_functions as ai
-from file_operations import read_file, write_to_file, append_to_file, delete_file
-from execute_code import execute_python_file
-from json_parser import fix_and_parse_json
+import ai.ai_functions as ai
+from utils.file_operations import read_file, write_to_file, append_to_file, delete_file, search_files
+from utils.execute_code import execute_python_file
+from utils.json_parser import fix_and_parse_json
 from duckduckgo_search import ddg
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 cfg = Config()
 
+
+def is_valid_int(value):
+    try:
+        int(value)
+        return True
+    except ValueError:
+        return False
 
 def get_command(response):
     try:
@@ -45,6 +52,7 @@ def get_command(response):
 
 
 def execute_command(command_name, arguments):
+    memory = PineconeMemory()
     try:
         if command_name == "google":
             
@@ -55,11 +63,7 @@ def execute_command(command_name, arguments):
             else:
                 return google_search(arguments["input"])
         elif command_name == "memory_add":
-            return commit_memory(arguments["string"])
-        elif command_name == "memory_del":
-            return delete_memory(arguments["key"])
-        elif command_name == "memory_ovr":
-            return overwrite_memory(arguments["key"], arguments["string"])
+            return memory.add(arguments["string"])
         elif command_name == "start_agent":
             return start_agent(
                 arguments["name"],
@@ -83,6 +87,8 @@ def execute_command(command_name, arguments):
             return append_to_file(arguments["file"], arguments["text"])
         elif command_name == "delete_file":
             return delete_file(arguments["file"])
+        elif command_name == "search_files":
+            return search_files(arguments["directory"])
         elif command_name == "browse_website":
             return browse_website(arguments["url"], arguments["question"])
         # TODO: Change these to take in a file rather than pasted code, if
@@ -118,8 +124,6 @@ def google_search(query, num_results=8):
     return json.dumps(search_results, ensure_ascii=False, indent=4)
 
 def google_official_search(query, num_results=8):
-    from googleapiclient.discovery import build
-    from googleapiclient.errors import HttpError
     import json
 
     try:
@@ -176,35 +180,6 @@ def get_hyperlinks(url):
     return link_list
 
 
-def commit_memory(string):
-    _text = f"""Committing memory with string "{string}" """
-    mem.permanent_memory.append(string)
-    return _text
-
-
-def delete_memory(key):
-    if key >= 0 and key < len(mem.permanent_memory):
-        _text = "Deleting memory with key " + str(key)
-        del mem.permanent_memory[key]
-        print(_text)
-        return _text
-    else:
-        print("Invalid key, cannot delete memory.")
-        return None
-
-
-def overwrite_memory(key, string):
-    if int(key) >= 0 and key < len(mem.permanent_memory):
-        _text = "Overwriting memory with key " + \
-            str(key) + " and string " + string
-        mem.permanent_memory[key] = string
-        print(_text)
-        return _text
-    else:
-        print("Invalid key, cannot overwrite memory.")
-        return None
-
-
 def shutdown():
     print("Shutting down...")
     quit()
@@ -235,13 +210,20 @@ def start_agent(name, task, prompt, model=cfg.fast_llm_model):
 
 def message_agent(key, message):
     global cfg
-    agent_response = agents.message_agent(key, message)
+
+    # Check if the key is a valid integer
+    if is_valid_int(key):
+        agent_response = agents.message_agent(int(key), message)
+    # Check if the key is a valid string
+    elif isinstance(key, str):
+        agent_response = agents.message_agent(key, message)
+    else:
+        return "Invalid key, must be an integer or a string."
 
     # Speak response
     if cfg.speak_mode:
-        speak.say_text(agent_response, 1)
-
-    return f"Agent {key} responded: {agent_response}"
+        say.speak(agent_response)
+    return agent_response
 
 
 def list_agents():

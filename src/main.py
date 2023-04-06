@@ -1,48 +1,20 @@
 import json
-import random
 import commands as cmd
-import memory as mem
+from utils.memory import PineconeMemory
 import data
-import chat
+from chat import chat
+from utils.spinner import Spinner
 from colorama import Fore, Style
-from spinner import Spinner
-import time
-import speak
-from enum import Enum, auto
-import sys
+import utils.speak as speak
 from config import Config
-from json_parser import fix_and_parse_json
-from ai_config import AIConfig
+from utils.json_parser import fix_and_parse_json
+from ai.ai_config import AIConfig
 import traceback
 import yaml
 import argparse
+from utils.console_log import print_to_console, print_error
 
 
-def print_to_console(
-        title,
-        title_color,
-        content,
-        speak_text=False,
-        min_typing_speed=0.05,
-        max_typing_speed=0.01):
-    global cfg
-    if speak_text and cfg.speak_mode:
-        speak.say_text(f"{title}. {content}")
-    print(title_color + title + " " + Style.RESET_ALL, end="")
-    if content:
-        if isinstance(content, list):
-            content = " ".join(content)
-        words = content.split()
-        for i, word in enumerate(words):
-            print(word, end="", flush=True)
-            if i < len(words) - 1:
-                print(" ", end="", flush=True)
-            typing_speed = random.uniform(min_typing_speed, max_typing_speed)
-            time.sleep(typing_speed)
-            # type faster after each word
-            min_typing_speed = min_typing_speed * 0.95
-            max_typing_speed = max_typing_speed * 0.95
-    print()
 
 
 def print_assistant_thoughts(assistant_reply):
@@ -57,7 +29,7 @@ def print_assistant_thoughts(assistant_reply):
             try:
                 assistant_reply_json = json.loads(assistant_reply_json)
             except json.JSONDecodeError as e:
-                print_to_console("Error: Invalid JSON\n", Fore.RED, assistant_reply)
+                print_error(assistant_reply)
                 assistant_reply_json = {}
 
         assistant_thoughts_reasoning = None
@@ -96,12 +68,12 @@ def print_assistant_thoughts(assistant_reply):
             speak.say_text(assistant_thoughts_speak)
 
     except json.decoder.JSONDecodeError:
-        print_to_console("Error: Invalid JSON\n", Fore.RED, assistant_reply)
+        print_error(title="Error: Invalid JSON\n",content=assistant_reply)
 
     # All other errors, return "Error: + error message"
     except Exception as e:
         call_stack = traceback.format_exc()
-        print_to_console("Error: \n", Fore.RED, call_stack)
+        print_error(call_stack)
 
 
 def load_variables(config_file="config.yaml"):
@@ -158,8 +130,8 @@ def load_variables(config_file="config.yaml"):
     return full_prompt
 
 
-def construct_prompt():
-    config = AIConfig.load()
+def construct_prompt(config_file=None):
+    config = AIConfig.load(config_file=config_file)
     if config.ai_name:
         print_to_console(
             f"Welcome back! ",
@@ -248,6 +220,10 @@ def parse_arguments():
     parser.add_argument('--speak', action='store_true', help='Enable Speak Mode')
     parser.add_argument('--debug', action='store_true', help='Enable Debug Mode')
     parser.add_argument('--gpt3only', action='store_true', help='Enable GPT3.5 Only Mode')
+    parser.add_argument('--config_file', action='store',
+        help='Use yaml file instead of prompting user for input', 
+        default='./last_run_ai_settings.yaml',
+    )
     args = parser.parse_args()
 
     if args.continuous:
@@ -266,19 +242,30 @@ def parse_arguments():
         print_to_console("GPT3.5 Only Mode: ", Fore.GREEN, "ENABLED")
         cfg.set_smart_llm_model(cfg.fast_llm_model)
 
+    if args.config_file:
+        print_to_console("Using config file: ", Fore.GREEN, args.config_file)
+        cfg.set_config_file(args.config_file)
+
 
 # TODO: fill in llm values here
 
 cfg = Config()
 parse_arguments()
 ai_name = ""
-prompt = construct_prompt()
+prompt = construct_prompt(config_file=cfg.config_file)
 # print(prompt)
 # Initialize variables
 full_message_history = []
 result = None
 # Make a constant:
 user_input = "Determine which next command to use, and respond using the format specified above:"
+
+# Initialize memory and make sure it is empty.
+# this is particularly important for indexing and referencing pinecone memory
+memory = PineconeMemory()
+memory.clear()
+
+print('Using memory of type: ' + memory.__class__.__name__)
 
 # Interaction Loop
 while True:
@@ -288,7 +275,7 @@ while True:
             prompt,
             user_input,
             full_message_history,
-            mem.permanent_memory,
+            memory,
             cfg.fast_token_limit) # TODO: This hardcodes the model to use GPT3.5. Make this an argument
 
     # print("assistant reply: "+assistant_reply)
@@ -299,7 +286,7 @@ while True:
     try:
         command_name, arguments = cmd.get_command(assistant_reply)
     except Exception as e:
-        print_to_console("Error: \n", Fore.RED, str(e))
+        print_error(str(e))
 
     if not cfg.continuous_mode:
         ### GET USER AUTHORIZATION TO EXECUTE COMMAND ###
@@ -348,6 +335,12 @@ while True:
         result = f"Human feedback: {user_input}"
     else:
         result = f"Command {command_name} returned: {cmd.execute_command(command_name, arguments)}"
+
+    memory_to_add = f"Assistant Reply: {assistant_reply} " \
+                    f"\nResult: {result} " \
+                    f"\nHuman Feedback: {user_input} "
+
+    memory.add(memory_to_add)
 
     # Check if there's a result from the command append it to the message
     # history
